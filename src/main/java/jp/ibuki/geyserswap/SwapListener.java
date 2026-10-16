@@ -264,6 +264,8 @@ final class SwapListener implements Listener {
             return;
         }
 
+        // 空振りした瞬間の落下距離 (視線を待つ 1 tick の間に着地しても、空中で振った落下攻撃として扱う)
+        float fallAtSwing = player.getFallDistance();
         // 1) クライアント自身が «照準が重なっている» と送ってきた相手
         UUID looked = plugin.mouseover().targetFor(player, swap.nanos);
         if (looked != null) {
@@ -271,21 +273,22 @@ final class SwapListener implements Listener {
             Location eye = player.getEyeLocation();
             if (e != null && reachable(player, e)) {
                 double d = distanceToBox(eye, e);
-                if (d > normal && d >= min && d <= max + MOUSEOVER_SLACK) {
-                    reachAttack(player, uuid, e, d, "マウスオーバー");
+                // 通常リーチ内でも当てる (統合版は 3 ブロック以内でも空振りを送ることがある)
+                if (d >= min && d <= max + MOUSEOVER_SLACK) {
+                    reachAttack(player, uuid, e, d, "マウスオーバー", fallAtSwing);
                     return;
                 }
-                debug(player, String.format("マウスオーバーの相手 %s は %.2f ブロック: 対象外 (通常リーチ %.2f〜槍 %.2f)",
-                        e.getName(), d, normal, max + MOUSEOVER_SLACK));
+                debug(player, String.format("マウスオーバーの相手 %s は %.2f ブロック: 対象外 (槍のリーチ %.2f〜%.2f)",
+                        e.getName(), d, min, max + MOUSEOVER_SLACK));
             }
         }
         // 2) 記録が無ければ視線で探す。Geyser は同じ入力の «空振り» を «視線の更新» より先に送るので、
         //    1 tick 待って更新後の視線で引く
         double margin = oldRange.hitboxMargin();
-        Bukkit.getScheduler().runTask(plugin, () -> reachByRay(player, uuid, held, min, max, normal, margin));
+        Bukkit.getScheduler().runTask(plugin, () -> reachByRay(player, uuid, held, min, max, margin, fallAtSwing));
     }
 
-    private void reachByRay(Player player, UUID uuid, ItemStack held, double min, double max, double normal, double margin) {
+    private void reachByRay(Player player, UUID uuid, ItemStack held, double min, double max, double margin, float fallAtSwing) {
         if (!player.isOnline() || !player.getInventory().getItemInMainHand().isSimilar(held)) {
             return;
         }
@@ -303,22 +306,31 @@ final class SwapListener implements Listener {
             return;
         }
         double distance = distanceToBox(eye, target);
-        if (distance < min || distance > max || distance <= normal) {
-            // 近すぎる (槍の最小リーチ未満) か、通常リーチ内 (統合版が自分で攻撃を送る距離)
-            debug(player, String.format("空振り (槍から %s)  相手まで %.2f ブロック: 対象外 (通常リーチ %.2f 以下)", name(held), distance, normal));
+        if (distance < min || distance > max) {
+            debug(player, String.format("空振り (槍から %s)  相手まで %.2f ブロック: 対象外 (槍のリーチ %.2f〜%.2f)", name(held), distance, min, max));
             return;
         }
-        reachAttack(player, uuid, target, distance, "視線");
+        reachAttack(player, uuid, target, distance, "視線", fallAtSwing);
     }
 
-    private void reachAttack(Player player, UUID uuid, Entity target, double distance, String how) {
-        debug(player, String.format("槍のリーチスワップ: %.2f ブロック先の %s を攻撃 (%s)", distance, target.getName(), how));
+    private void reachAttack(Player player, UUID uuid, Entity target, double distance, String how, float fallAtSwing) {
+        float fallNow = player.getFallDistance();
+        boolean restoreFall = fallAtSwing > fallNow;
+        debug(player, String.format("槍のリーチスワップ: %.2f ブロック先の %s を攻撃 (%s)%s", distance, target.getName(), how,
+                restoreFall ? String.format("  落下距離は空振り時の %.2f (今 %.2f)", fallAtSwing, fallNow)
+                        : fallAtSwing > 0 ? String.format("  落下距離 %.2f", fallNow) : ""));
         lastAttackTick.put(uuid, Bukkit.getCurrentTick());
         reachAttacks.add(uuid);
+        if (restoreFall) {
+            player.setFallDistance(fallAtSwing);
+        }
         try {
             player.attack(target);
         } finally {
             reachAttacks.remove(uuid);
+            if (restoreFall && player.getFallDistance() == fallAtSwing) {
+                player.setFallDistance(fallNow); // 落下攻撃にならなかったときは元に戻す
+            }
         }
     }
 
