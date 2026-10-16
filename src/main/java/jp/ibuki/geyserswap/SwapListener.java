@@ -25,6 +25,7 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.player.PlayerItemHeldEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.server.PluginDisableEvent;
@@ -75,12 +76,6 @@ final class SwapListener implements Listener {
         }
     }
 
-    /** 槍を持っていた間にクライアントが照準を合わせていた相手 */
-    private record Look(UUID target, int tick) {
-    }
-
-    /** マウスオーバーの記録を使う期限 (tick)。持ち替え直前の記録だけを使う */
-    private static final int MOUSEOVER_TICKS = 10;
     /** クライアントが見ていた相手は少し遅れた位置なので、槍のリーチに足す余裕 (ブロック) */
     private static final double MOUSEOVER_SLACK = 1.0;
 
@@ -115,7 +110,6 @@ final class SwapListener implements Listener {
     private final Map<UUID, Integer> lastAttackTick = new HashMap<>();
     private final Set<UUID> reachAttacks = new HashSet<>();
     private final Map<UUID, Integer> lastStabTick = new HashMap<>();
-    private final Map<UUID, Look> lastLook = new HashMap<>();
 
     SwapListener(GeyserSwapPlugin plugin) {
         this.plugin = plugin;
@@ -270,10 +264,10 @@ final class SwapListener implements Listener {
             return;
         }
 
-        // 1) クライアント自身が «照準が重なっている» と送ってきた相手 (槍を持っていた間の記録)
-        Look look = lastLook.get(uuid);
-        if (look != null && Bukkit.getCurrentTick() - look.tick() <= MOUSEOVER_TICKS) {
-            Entity e = player.getWorld().getEntity(look.target());
+        // 1) クライアント自身が «照準が重なっている» と送ってきた相手
+        UUID looked = plugin.mouseover().targetFor(player, swap.nanos);
+        if (looked != null) {
+            Entity e = player.getWorld().getEntity(looked);
             Location eye = player.getEyeLocation();
             if (e != null && reachable(player, e)) {
                 double d = distanceToBox(eye, e);
@@ -304,8 +298,8 @@ final class SwapListener implements Listener {
                 margin, e -> e != player && reachable(player, e));
         Entity target = hit == null ? null : hit.getHitEntity();
         if (target == null) {
-            debug(player, String.format("空振り (槍から %s)  槍のリーチ %.1f 以内に相手なし (マウスオーバーの記録なし)%s",
-                    name(held), max, nearestHint(player, eye)));
+            debug(player, String.format("空振り (槍から %s)  槍のリーチ %.1f 以内に相手なし (照準の記録%s)%s",
+                    name(held), max, !plugin.mouseover().available() ? "は使えない構成" : plugin.mouseover().hasRecord(player) ? "も外れていた" : "なし", nearestHint(player, eye)));
             return;
         }
         double distance = distanceToBox(eye, target);
@@ -325,26 +319,6 @@ final class SwapListener implements Listener {
             player.attack(target);
         } finally {
             reachAttacks.remove(uuid);
-        }
-    }
-
-    /** 槍を持っている間、毎 tick クライアントのマウスオーバーを記録する (プラグイン本体から呼ぶ) */
-    void pollMouseover() {
-        GeyserMouseover mouseover = plugin.mouseover();
-        if (!plugin.spearReach() || !mouseover.available()) {
-            return;
-        }
-        int tick = Bukkit.getCurrentTick();
-        for (Player p : Bukkit.getOnlinePlayers()) {
-            if (!p.getInventory().getItemInMainHand().hasData(DataComponentTypes.ATTACK_RANGE) || !isTarget(p)) {
-                continue;
-            }
-            UUID target = mouseover.target(p);
-            if (target == null) {
-                lastLook.remove(p.getUniqueId());
-            } else {
-                lastLook.put(p.getUniqueId(), new Look(target, tick));
-            }
         }
     }
 
@@ -681,6 +655,17 @@ final class SwapListener implements Listener {
         return item == null || item.isEmpty() ? "素手" : item.getType().getKey().getKey();
     }
 
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onJoin(PlayerJoinEvent event) {
+        Player player = event.getPlayer();
+        // Geyser のセッション準備を待ってから照準の読み取りを入れる
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            if (player.isOnline() && plugin.bedrockDetector().isBedrock(player)) {
+                plugin.mouseover().attach(player);
+            }
+        }, 20L);
+    }
+
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         UUID uuid = event.getPlayer().getUniqueId();
@@ -688,7 +673,7 @@ final class SwapListener implements Listener {
         consumed.remove(uuid);
         lastAttackTick.remove(uuid);
         lastStabTick.remove(uuid);
-        lastLook.remove(uuid);
+        plugin.mouseover().forget(uuid);
         restoreNow(uuid);
     }
 

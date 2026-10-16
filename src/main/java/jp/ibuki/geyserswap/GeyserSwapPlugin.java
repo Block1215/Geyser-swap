@@ -35,7 +35,11 @@ public final class GeyserSwapPlugin extends JavaPlugin {
 
         SwapListener listener = new SwapListener(this);
         getServer().getPluginManager().registerEvents(listener, this);
-        getServer().getScheduler().runTaskTimer(this, listener::pollMouseover, 1L, 1L);
+        for (org.bukkit.entity.Player online : getServer().getOnlinePlayers()) {
+            if (bedrockDetector.isBedrock(online)) {
+                mouseover.attach(online);
+            }
+        }
 
         PluginCommand command = getCommand("geyserswap");
         SwapCommand executor = new SwapCommand(this);
@@ -43,6 +47,13 @@ public final class GeyserSwapPlugin extends JavaPlugin {
         command.setTabCompleter(executor);
 
         getLogger().info("猶予 " + graceMs + "ms / 検出: " + bedrockDetector.describe());
+    }
+
+    @Override
+    public void onDisable() {
+        if (mouseover != null) {
+            mouseover.detachAll();
+        }
     }
 
     public void loadSettings() {
