@@ -1,0 +1,18 @@
+name: GeyserSwap
+version: '${version}'
+main: jp.ibuki.geyserswap.GeyserSwapPlugin
+api-version: '26.1'
+description: 統合版(Geyser)プレイヤーに Java 版 PvP の属性スワップを疑似的に使わせる
+softdepend: [Geyser-Spigot, floodgate]
+
+commands:
+  geyserswap:
+    description: 属性スワップの猶予などを設定する
+    usage: /geyserswap [grace <ms> | on | off | keepcharge | bedrockonly | spearreach | airgrace | airmax <ms> | swapback | stronger | debug | reload]
+    aliases: [gswap]
+    permission: geyserswap.admin
+
+permissions:
+  geyserswap.admin:
+    description: /geyserswap で設定を変更できる
+    default: op

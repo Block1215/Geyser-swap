@@ -1,0 +1,32 @@
+plugins {
+    id 'java'
+}
+
+group = 'jp.ibuki'
+version = '1.0.0'
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://repo.papermc.io/repository/maven-public/' }
+}
+
+dependencies {
+    // 26.1 の API でビルドし、26.1〜26.3 のサーバーで動かす
+    compileOnly 'io.papermc.paper:paper-api:26.1.2.build.74-stable'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 25
+}
+
+processResources {
+    filteringCharset = 'UTF-8'
+    filesMatching('plugin.yml') {
+        expand(version: project.version)
+    }
+}
+
+jar {
+    archiveBaseName = 'GeyserSwap'
+}
