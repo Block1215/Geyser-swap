@@ -10,6 +10,7 @@ public final class GeyserSwapPlugin extends JavaPlugin {
     private BedrockDetector bedrockDetector;
     private AttackTicker attackTicker;
     private StabInvoker stabInvoker;
+    private GeyserMouseover mouseover;
 
     private boolean enabled;
     private int graceMs;
@@ -30,8 +31,11 @@ public final class GeyserSwapPlugin extends JavaPlugin {
         bedrockDetector = new BedrockDetector(this);
         attackTicker = new AttackTicker(getLogger());
         stabInvoker = new StabInvoker(getLogger());
+        mouseover = new GeyserMouseover(this);
 
-        getServer().getPluginManager().registerEvents(new SwapListener(this), this);
+        SwapListener listener = new SwapListener(this);
+        getServer().getPluginManager().registerEvents(listener, this);
+        getServer().getScheduler().runTaskTimer(this, listener::pollMouseover, 1L, 1L);
 
         PluginCommand command = getCommand("geyserswap");
         SwapCommand executor = new SwapCommand(this);
@@ -67,6 +71,7 @@ public final class GeyserSwapPlugin extends JavaPlugin {
     public BedrockDetector bedrockDetector() { return bedrockDetector; }
     public AttackTicker attackTicker() { return attackTicker; }
     public StabInvoker stabInvoker() { return stabInvoker; }
+    public GeyserMouseover mouseover() { return mouseover; }
 
     public boolean swapEnabled() { return enabled; }
     public int graceMs() { return graceMs; }

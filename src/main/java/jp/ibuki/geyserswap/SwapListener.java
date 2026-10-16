@@ -75,6 +75,15 @@ final class SwapListener implements Listener {
         }
     }
 
+    /** 槍を持っていた間にクライアントが照準を合わせていた相手 */
+    private record Look(UUID target, int tick) {
+    }
+
+    /** マウスオーバーの記録を使う期限 (tick)。持ち替え直前の記録だけを使う */
+    private static final int MOUSEOVER_TICKS = 10;
+    /** クライアントが見ていた相手は少し遅れた位置なので、槍のリーチに足す余裕 (ブロック) */
+    private static final double MOUSEOVER_SLACK = 1.0;
+
     /** 直前に成立したスワップ (持ち戻し判定用) */
     private record Consumed(ItemStack oldItem, long nanos) {
     }
@@ -106,6 +115,7 @@ final class SwapListener implements Listener {
     private final Map<UUID, Integer> lastAttackTick = new HashMap<>();
     private final Set<UUID> reachAttacks = new HashSet<>();
     private final Map<UUID, Integer> lastStabTick = new HashMap<>();
+    private final Map<UUID, Look> lastLook = new HashMap<>();
 
     SwapListener(GeyserSwapPlugin plugin) {
         this.plugin = plugin;
@@ -260,12 +270,41 @@ final class SwapListener implements Listener {
             return;
         }
 
+        // 1) クライアント自身が «照準が重なっている» と送ってきた相手 (槍を持っていた間の記録)
+        Look look = lastLook.get(uuid);
+        if (look != null && Bukkit.getCurrentTick() - look.tick() <= MOUSEOVER_TICKS) {
+            Entity e = player.getWorld().getEntity(look.target());
+            Location eye = player.getEyeLocation();
+            if (e != null && reachable(player, e)) {
+                double d = distanceToBox(eye, e);
+                if (d > normal && d >= min && d <= max + MOUSEOVER_SLACK) {
+                    reachAttack(player, uuid, e, d, "マウスオーバー");
+                    return;
+                }
+                debug(player, String.format("マウスオーバーの相手 %s は %.2f ブロック: 対象外 (通常リーチ %.2f〜槍 %.2f)",
+                        e.getName(), d, normal, max + MOUSEOVER_SLACK));
+            }
+        }
+        // 2) 記録が無ければ視線で探す。Geyser は同じ入力の «空振り» を «視線の更新» より先に送るので、
+        //    1 tick 待って更新後の視線で引く
+        double margin = oldRange.hitboxMargin();
+        Bukkit.getScheduler().runTask(plugin, () -> reachByRay(player, uuid, held, min, max, normal, margin));
+    }
+
+    private void reachByRay(Player player, UUID uuid, ItemStack held, double min, double max, double normal, double margin) {
+        if (!player.isOnline() || !player.getInventory().getItemInMainHand().isSimilar(held)) {
+            return;
+        }
+        Integer attackedTick = lastAttackTick.get(uuid);
+        if (attackedTick != null && Bukkit.getCurrentTick() - attackedTick <= 1) {
+            return; // 待っている間に通常の攻撃が届いた
+        }
         Location eye = player.getEyeLocation();
         RayTraceResult hit = player.getWorld().rayTrace(eye, eye.getDirection(), max, FluidCollisionMode.NEVER, true,
-                oldRange.hitboxMargin(), e -> e != player && reachable(player, e));
+                margin, e -> e != player && reachable(player, e));
         Entity target = hit == null ? null : hit.getHitEntity();
         if (target == null) {
-            debug(player, String.format("空振り (槍から %s)  槍のリーチ %.1f 以内に相手なし%s",
+            debug(player, String.format("空振り (槍から %s)  槍のリーチ %.1f 以内に相手なし (マウスオーバーの記録なし)%s",
                     name(held), max, nearestHint(player, eye)));
             return;
         }
@@ -275,13 +314,37 @@ final class SwapListener implements Listener {
             debug(player, String.format("空振り (槍から %s)  相手まで %.2f ブロック: 対象外 (通常リーチ %.2f 以下)", name(held), distance, normal));
             return;
         }
-        debug(player, String.format("槍のリーチスワップ: %.2f ブロック先の %s を攻撃", distance, target.getName()));
+        reachAttack(player, uuid, target, distance, "視線");
+    }
+
+    private void reachAttack(Player player, UUID uuid, Entity target, double distance, String how) {
+        debug(player, String.format("槍のリーチスワップ: %.2f ブロック先の %s を攻撃 (%s)", distance, target.getName(), how));
         lastAttackTick.put(uuid, Bukkit.getCurrentTick());
         reachAttacks.add(uuid);
         try {
             player.attack(target);
         } finally {
             reachAttacks.remove(uuid);
+        }
+    }
+
+    /** 槍を持っている間、毎 tick クライアントのマウスオーバーを記録する (プラグイン本体から呼ぶ) */
+    void pollMouseover() {
+        GeyserMouseover mouseover = plugin.mouseover();
+        if (!plugin.spearReach() || !mouseover.available()) {
+            return;
+        }
+        int tick = Bukkit.getCurrentTick();
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            if (!p.getInventory().getItemInMainHand().hasData(DataComponentTypes.ATTACK_RANGE) || !isTarget(p)) {
+                continue;
+            }
+            UUID target = mouseover.target(p);
+            if (target == null) {
+                lastLook.remove(p.getUniqueId());
+            } else {
+                lastLook.put(p.getUniqueId(), new Look(target, tick));
+            }
         }
     }
 
@@ -450,14 +513,15 @@ final class SwapListener implements Listener {
                     held, elapsedMs, attributeValue(player, Attribute.ATTACK_DAMAGE), player.getAttackCooldown() * 100));
             return;
         }
-        if (!withinWindow(player, swap, now)) {
+        // 槍のリーチスワップは空振りを受け取った時点で猶予を確かめ済み (視線を待つため攻撃は 1 tick 後になる)
+        boolean reach = reachAttacks.contains(player.getUniqueId());
+        if (!reach && !withinWindow(player, swap, now)) {
             debug(player, String.format("攻撃 (%s) 切り替えから %dms > 猶予 %dms%s → 通常攻撃", held, elapsedMs, plugin.graceMs(),
                     swap.inAir ? (swap.landed ? " (着地済み)" : " (空中延長も超過)") : ""));
             return;
         }
         ItemStack newItem = player.getInventory().getItemInMainHand();
         double damageBefore = attributeValue(player, Attribute.ATTACK_DAMAGE);
-        boolean reach = reachAttacks.contains(player.getUniqueId());
 
         // 属性の差し替え: 切り替え前が武器で、今の武器より弱くないとき (槍のリーチは常に)
         String skip = null;
@@ -624,6 +688,7 @@ final class SwapListener implements Listener {
         consumed.remove(uuid);
         lastAttackTick.remove(uuid);
         lastStabTick.remove(uuid);
+        lastLook.remove(uuid);
         restoreNow(uuid);
     }
 
