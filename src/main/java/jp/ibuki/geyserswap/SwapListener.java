@@ -109,6 +109,7 @@ final class SwapListener implements Listener {
     private final Map<UUID, Consumed> consumed = new HashMap<>();
     private final Map<UUID, Integer> lastAttackTick = new HashMap<>();
     private final Set<UUID> reachAttacks = new HashSet<>();
+    private final Set<UUID> reachBeyond = new HashSet<>(); // 通常リーチより遠い (槍のリーチが要る) 攻撃
     private final Map<UUID, Integer> lastStabTick = new HashMap<>();
 
     SwapListener(GeyserSwapPlugin plugin) {
@@ -275,7 +276,7 @@ final class SwapListener implements Listener {
                 double d = distanceToBox(eye, e);
                 // 通常リーチ内でも当てる (統合版は 3 ブロック以内でも空振りを送ることがある)
                 if (d >= min && d <= max + MOUSEOVER_SLACK) {
-                    reachAttack(player, uuid, e, d, "マウスオーバー", fallAtSwing);
+                    reachAttack(player, uuid, e, d, "マウスオーバー", fallAtSwing, d > normal);
                     return;
                 }
                 debug(player, String.format("マウスオーバーの相手 %s は %.2f ブロック: 対象外 (槍のリーチ %.2f〜%.2f)",
@@ -285,10 +286,10 @@ final class SwapListener implements Listener {
         // 2) 記録が無ければ視線で探す。Geyser は同じ入力の «空振り» を «視線の更新» より先に送るので、
         //    1 tick 待って更新後の視線で引く
         double margin = oldRange.hitboxMargin();
-        Bukkit.getScheduler().runTask(plugin, () -> reachByRay(player, uuid, held, min, max, margin, fallAtSwing));
+        Bukkit.getScheduler().runTask(plugin, () -> reachByRay(player, uuid, held, min, max, normal, margin, fallAtSwing));
     }
 
-    private void reachByRay(Player player, UUID uuid, ItemStack held, double min, double max, double margin, float fallAtSwing) {
+    private void reachByRay(Player player, UUID uuid, ItemStack held, double min, double max, double normal, double margin, float fallAtSwing) {
         if (!player.isOnline() || !player.getInventory().getItemInMainHand().isSimilar(held)) {
             return;
         }
@@ -310,10 +311,10 @@ final class SwapListener implements Listener {
             debug(player, String.format("空振り (槍から %s)  相手まで %.2f ブロック: 対象外 (槍のリーチ %.2f〜%.2f)", name(held), distance, min, max));
             return;
         }
-        reachAttack(player, uuid, target, distance, "視線", fallAtSwing);
+        reachAttack(player, uuid, target, distance, "視線", fallAtSwing, distance > normal);
     }
 
-    private void reachAttack(Player player, UUID uuid, Entity target, double distance, String how, float fallAtSwing) {
+    private void reachAttack(Player player, UUID uuid, Entity target, double distance, String how, float fallAtSwing, boolean beyondNormal) {
         float fallNow = player.getFallDistance();
         boolean restoreFall = fallAtSwing > fallNow;
         debug(player, String.format("槍のリーチスワップ: %.2f ブロック先の %s を攻撃 (%s)%s", distance, target.getName(), how,
@@ -321,6 +322,9 @@ final class SwapListener implements Listener {
                         : fallAtSwing > 0 ? String.format("  落下距離 %.2f", fallNow) : ""));
         lastAttackTick.put(uuid, Bukkit.getCurrentTick());
         reachAttacks.add(uuid);
+        if (beyondNormal) {
+            reachBeyond.add(uuid);
+        }
         if (restoreFall) {
             player.setFallDistance(fallAtSwing);
         }
@@ -328,6 +332,9 @@ final class SwapListener implements Listener {
             player.attack(target);
         } finally {
             reachAttacks.remove(uuid);
+            reachBeyond.remove(uuid);
+            // 攻撃は同期で終わっているので、差し替えた属性はすぐ戻す (次の tick まで残さない)
+            restoreNow(uuid);
             if (restoreFall && player.getFallDistance() == fallAtSwing) {
                 player.setFallDistance(fallNow); // 落下攻撃にならなかったときは元に戻す
             }
@@ -430,6 +437,7 @@ final class SwapListener implements Listener {
         consumed.put(uuid, new Consumed(swap.oldItem, System.nanoTime()));
         lastAttackTick.put(uuid, Bukkit.getCurrentTick());
         boolean ok = plugin.stabInvoker().stab(player);
+        restoreNow(uuid); // 突きは同期で終わっているので、差し替えた属性はすぐ戻す
         debug(player, String.format("槍のチャージスワップ: %s → %s  %dms  突き%s  満腹度 %d%s", name(swap.oldItem), name(spear), elapsed,
                 ok ? "を実行" : "に失敗", player.getFoodLevel(), player.getFoodLevel() < 7 ? " (7 未満なので突進は出ない)" : ""));
     }
@@ -475,20 +483,22 @@ final class SwapListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onAttack(PrePlayerAttackEntityEvent event) {
         Player player = event.getPlayer();
-        PendingSwap swap = pending.remove(player.getUniqueId());
         if (!isTarget(player)) {
+            pending.remove(player.getUniqueId());
             return;
         }
+        if (event.isCancelled() || !event.willAttack()) {
+            // 他のプラグインに取り消された攻撃では記録を消費しない (直後の本当の攻撃でスワップが効くように)
+            debug(player, "攻撃 (" + name(player.getInventory().getItemInMainHand()) + ") は取り消された/攻撃にならない");
+            return;
+        }
+        PendingSwap swap = pending.remove(player.getUniqueId());
         long now = System.nanoTime();
         lastAttackTick.put(player.getUniqueId(), Bukkit.getCurrentTick());
         String held = name(player.getInventory().getItemInMainHand());
         if (swap == null) {
             debug(player, String.format("攻撃 (%s) 切り替え記録なし → 通常攻撃  攻撃力 %.1f チャージ %.0f%%",
                     held, attributeValue(player, Attribute.ATTACK_DAMAGE), player.getAttackCooldown() * 100));
-            return;
-        }
-        if (event.isCancelled() || !event.willAttack()) {
-            debug(player, "攻撃 (" + held + ") は取り消された/攻撃にならない");
             return;
         }
         long elapsedMs = elapsedMs(swap.nanos, now);
@@ -501,6 +511,7 @@ final class SwapListener implements Listener {
         }
         // 槍のリーチスワップは空振りを受け取った時点で猶予を確かめ済み (視線を待つため攻撃は 1 tick 後になる)
         boolean reach = reachAttacks.contains(player.getUniqueId());
+        boolean beyond = reachBeyond.contains(player.getUniqueId());
         if (!reach && !withinWindow(player, swap, now)) {
             debug(player, String.format("攻撃 (%s) 切り替えから %dms > 猶予 %dms%s → 通常攻撃", held, elapsedMs, plugin.graceMs(),
                     swap.inAir ? (swap.landed ? " (着地済み)" : " (空中延長も超過)") : ""));
@@ -509,11 +520,11 @@ final class SwapListener implements Listener {
         ItemStack newItem = player.getInventory().getItemInMainHand();
         double damageBefore = attributeValue(player, Attribute.ATTACK_DAMAGE);
 
-        // 属性の差し替え: 切り替え前が武器で、今の武器より弱くないとき (槍のリーチは常に)
+        // 属性の差し替え: 切り替え前が武器で、今の武器より弱くないとき (槍のリーチが要る距離なら常に)
         String skip = null;
         if (!isWeapon(swap.oldItem)) {
             skip = "切り替え前 (" + name(swap.oldItem) + ") が武器でない";
-        } else if (!reach && plugin.onlyStronger() && attackBonus(swap.oldItem) < attackBonus(newItem)) {
+        } else if (!beyond && plugin.onlyStronger() && attackBonus(swap.oldItem) < attackBonus(newItem)) {
             skip = "切り替え前 (" + name(swap.oldItem) + ") のほうが弱い";
         }
         if (skip == null) {
