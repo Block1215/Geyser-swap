@@ -48,6 +48,7 @@ Java 版では、ホットバー切り替えと攻撃が同じ tick に届くと
 | `/geyserswap keepcharge <true\|false>` | 切り替え前のチャージを引き継ぐか |
 | `/geyserswap bedrockonly <true\|false>` | 統合版だけに適用するか |
 | `/geyserswap spearreach <true\|false>` | 槍のリーチスワップ |
+| `/geyserswap reachgrace <ms>` | 槍のリーチスワップの猶予 (初期値 200ms)。通常の猶予より長い方が使われる |
 | `/geyserswap airgrace <true\|false>` | 空中延長 (メイス) |
 | `/geyserswap airmax <ms>` | 空中延長の上限 (0〜10000) |
 | `/geyserswap swapback <true\|false>` | 持ち戻しを無視するか |

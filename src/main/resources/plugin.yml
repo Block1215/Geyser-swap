@@ -8,7 +8,7 @@ softdepend: [Geyser-Spigot, floodgate]
 commands:
   geyserswap:
     description: 属性スワップの猶予などを設定する
-    usage: /geyserswap [grace <ms> | on | off | keepcharge | bedrockonly | spearreach | airgrace | airmax <ms> | swapback | stronger | debug | reload]
+    usage: /geyserswap [grace <ms> | on | off | keepcharge | bedrockonly | spearreach | reachgrace <ms> | airgrace | airmax <ms> | swapback | stronger | debug | reload]
     aliases: [gswap]
     permission: geyserswap.admin
 

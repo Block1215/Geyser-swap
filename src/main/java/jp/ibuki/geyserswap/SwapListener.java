@@ -247,10 +247,19 @@ final class SwapListener implements Listener {
             return; // 攻撃に付随する腕振り
         }
         PendingSwap swap = pending.get(uuid);
-        if (swap == null || !withinWindow(player, swap, System.nanoTime())) {
+        if (swap == null) {
             return;
         }
         AttackRange oldRange = swap.oldItem.getData(DataComponentTypes.ATTACK_RANGE);
+        long sinceSwap = elapsedMs(swap.nanos, System.nanoTime());
+        // リーチスワップは専用の猶予 (統合版は持ち替えから空振りが届くまで 30〜175ms かかる)
+        if (sinceSwap > Math.max(plugin.graceMs(), plugin.spearReachGraceMs()) && !withinWindow(player, swap, System.nanoTime())) {
+            if (oldRange != null) {
+                debug(player, String.format("空振り (槍から %s)  持ち替えから %dms > リーチスワップの猶予 %dms",
+                        name(player.getInventory().getItemInMainHand()), sinceSwap, Math.max(plugin.graceMs(), plugin.spearReachGraceMs())));
+            }
+            return;
+        }
         ItemStack held = player.getInventory().getItemInMainHand();
         if (oldRange == null || held.hasData(DataComponentTypes.PIERCING_WEAPON)) {
             return;
