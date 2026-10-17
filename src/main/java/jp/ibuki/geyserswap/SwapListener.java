@@ -278,8 +278,9 @@ final class SwapListener implements Listener {
                     reachAttack(player, uuid, e, d, "マウスオーバー", fallAtSwing);
                     return;
                 }
-                debug(player, String.format("マウスオーバーの相手 %s は %.2f ブロック: 対象外 (槍のリーチが要る %.2f〜%.2f の外)",
-                        e.getName(), d, Math.max(min, normal), max + MOUSEOVER_SLACK));
+                debug(player, String.format("照準の相手 %s は %.2f ブロック: %s",
+                        e.getName(), d, d > max + MOUSEOVER_SLACK ? String.format("遠すぎ (槍のリーチは %.1f まで)", max)
+                                : String.format("近すぎ (%.1f 以内は普通の攻撃の距離)", Math.max(min, normal))));
             }
         }
         // 2) 記録が無ければ視線で探す。Geyser は同じ入力の «空振り» を «視線の更新» より先に送るので、
@@ -302,7 +303,7 @@ final class SwapListener implements Listener {
         Entity target = hit == null ? null : hit.getHitEntity();
         if (target == null) {
             debug(player, String.format("空振り (槍から %s)  槍のリーチ %.1f 以内に相手なし (照準の記録%s)%s",
-                    name(held), max, !plugin.mouseover().available() ? "は使えない構成" : plugin.mouseover().hasRecord(player) ? "も外れていた" : "なし", nearestHint(player, eye)));
+                    name(held), max, !plugin.mouseover().available() ? "は使えない構成" : plugin.mouseover().hasRecord(player) ? "も外れていた" : "なし", nearestHint(player, eye, max, normal)));
             return;
         }
         double distance = distanceToBox(eye, target);
@@ -349,20 +350,28 @@ final class SwapListener implements Listener {
         return Math.toDegrees(to.angle(eye.getDirection()));
     }
 
-    /** 外れたときの手がかり: 一番近い相手の距離と、視線からの角度 */
-    private static String nearestHint(Player player, Location eye) {
-        Entity nearest = null;
-        double best = Double.MAX_VALUE;
+    /** 外れたときの手がかり: 視線に一番近い相手 (狙っていたはずの相手) の距離と角度から理由を出す */
+    private static String nearestHint(Player player, Location eye, double max, double normal) {
+        Entity aimed = null;
+        double bestAngle = Double.MAX_VALUE;
         for (Entity e : player.getNearbyEntities(8, 8, 8)) {
             if (reachable(player, e)) {
-                double d = distanceToBox(eye, e);
-                if (d < best) {
-                    best = d;
-                    nearest = e;
+                double angle = angleTo(eye, e);
+                if (angle < bestAngle) {
+                    bestAngle = angle;
+                    aimed = e;
                 }
             }
         }
-        return nearest == null ? "" : String.format("  (一番近い %s: %.2f ブロック・視線から %.0f°)", nearest.getName(), best, angleTo(eye, nearest));
+        if (aimed == null) {
+            return "";
+        }
+        double d = distanceToBox(eye, aimed);
+        String why = bestAngle > 30 ? "狙いがずれている"
+                : d > max ? String.format("遠すぎ: 槍のリーチは %.1f まで", max)
+                : d <= normal ? String.format("近すぎ: %.1f 以内は普通の攻撃の距離", normal)
+                : "狙いがずれている";
+        return String.format("  → %s (視線に一番近い %s: %.2f ブロック・視線から %.0f°)", why, aimed.getName(), d, bestAngle);
     }
 
     /**
