@@ -34,7 +34,7 @@ Java 版では、ホットバー切り替えと攻撃が同じ tick に届くと
 
 ## 導入
 
-1. `build/libs/GeyserSwap-1.0.0.jar` を `plugins/` に入れる
+1. `build/libs/GeyserSwap-<バージョン>.jar` を `plugins/` に入れる (古い版の jar は消す)
 2. 同じサーバーに Geyser-Spigot か Floodgate を入れておく
    (Geyser をプロキシ側に置く構成なら、バックエンドに Floodgate が必要)
 
