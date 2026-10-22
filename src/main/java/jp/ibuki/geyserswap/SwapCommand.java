@@ -106,7 +106,7 @@ final class SwapCommand implements TabExecutor {
             case "reachgrace" -> {
                 Integer ms = args.length < 2 ? null : parseMs(args[1]);
                 if (ms == null || ms < 0 || ms > GeyserSwapPlugin.MAX_GRACE_MS) {
-                    error(sender, "/" + label + " reachgrace <0〜" + GeyserSwapPlugin.MAX_GRACE_MS + " ミリ秒>  例: reachgrace 200 / reachgrace 4t");
+                    error(sender, "/" + label + " reachgrace <0〜" + GeyserSwapPlugin.MAX_GRACE_MS + " ミリ秒>  例: reachgrace 80 / reachgrace 2t");
                     return true;
                 }
                 plugin.setSpearReachGraceMs(ms);
@@ -206,7 +206,7 @@ final class SwapCommand implements TabExecutor {
                 case "grace" -> List.of("50", "100", "150", "200", "300");
                 case "keepcharge", "bedrockonly", "spearreach", "airgrace", "swapback", "stronger", "debug" -> List.of("true", "false");
                 case "airmax" -> List.of("2000", "3000", "5000");
-                case "reachgrace" -> List.of("150", "200", "300");
+                case "reachgrace" -> List.of("50", "80", "100", "150");
                 default -> List.of();
             };
         }
