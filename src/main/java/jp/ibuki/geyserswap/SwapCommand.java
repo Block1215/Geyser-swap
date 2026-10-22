@@ -11,7 +11,7 @@ import java.util.Locale;
 
 final class SwapCommand implements TabExecutor {
 
-    private static final List<String> SUBCOMMANDS = List.of("grace", "on", "off", "keepcharge", "bedrockonly", "spearreach", "reachgrace", "airgrace", "airmax", "swapback", "stronger", "debug", "reload", "status");
+    private static final List<String> SUBCOMMANDS = List.of("grace", "on", "off", "keepcharge", "bedrockonly", "spearreach", "airgrace", "airmax", "swapback", "stronger", "debug", "reload", "status");
 
     private final GeyserSwapPlugin plugin;
 
@@ -103,15 +103,6 @@ final class SwapCommand implements TabExecutor {
                     ok(sender, "持ち戻しを無視: " + onOff(value));
                 }
             }
-            case "reachgrace" -> {
-                Integer ms = args.length < 2 ? null : parseMs(args[1]);
-                if (ms == null || ms < 0 || ms > GeyserSwapPlugin.MAX_GRACE_MS) {
-                    error(sender, "/" + label + " reachgrace <0〜" + GeyserSwapPlugin.MAX_GRACE_MS + " ミリ秒>  例: reachgrace 80 / reachgrace 2t");
-                    return true;
-                }
-                plugin.setSpearReachGraceMs(ms);
-                ok(sender, "槍のリーチスワップの猶予を " + plugin.spearReachGraceMs() + "ms (" + ticks(plugin.spearReachGraceMs()) + ") にしました");
-            }
             case "stronger" -> {
                 Boolean value = parseBool(sender, args);
                 if (value != null) {
@@ -124,7 +115,7 @@ final class SwapCommand implements TabExecutor {
                 ok(sender, "config.yml を読み直しました");
                 status(sender);
             }
-            default -> error(sender, "使い方: /" + label + " [grace <ms> | on | off | keepcharge | bedrockonly | spearreach | reachgrace <ms> | airgrace | airmax <ms> | swapback | stronger | debug | reload]");
+            default -> error(sender, "使い方: /" + label + " [grace <ms> | on | off | keepcharge | bedrockonly | spearreach | airgrace | airmax <ms> | swapback | stronger | debug | reload]");
         }
         return true;
     }
@@ -135,7 +126,7 @@ final class SwapCommand implements TabExecutor {
         info(sender, "猶予: " + plugin.graceMs() + "ms (" + ticks(plugin.graceMs()) + ")");
         info(sender, "チャージ引き継ぎ: " + onOff(plugin.keepAttackCharge()));
         info(sender, "統合版のみ: " + onOff(plugin.bedrockOnly()) + "  (検出: " + plugin.bedrockDetector().describe() + ")");
-        info(sender, "槍のリーチスワップ: " + onOff(plugin.spearReach()) + "  猶予 " + plugin.spearReachGraceMs() + "ms");
+        info(sender, "槍のリーチスワップ: " + onOff(plugin.spearReach()));
         info(sender, "空中の猶予延長: " + onOff(plugin.airGrace()) + " (上限 " + plugin.airGraceMaxMs() + "ms)");
         info(sender, "持ち戻しを無視: " + onOff(plugin.ignoreSwapBack()));
         info(sender, "強い武器からのみ属性を差し替え: " + onOff(plugin.onlyStronger()));
@@ -206,7 +197,6 @@ final class SwapCommand implements TabExecutor {
                 case "grace" -> List.of("50", "100", "150", "200", "300");
                 case "keepcharge", "bedrockonly", "spearreach", "airgrace", "swapback", "stronger", "debug" -> List.of("true", "false");
                 case "airmax" -> List.of("2000", "3000", "5000");
-                case "reachgrace" -> List.of("50", "80", "100", "150");
                 default -> List.of();
             };
         }

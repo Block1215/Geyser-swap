@@ -22,7 +22,6 @@ public final class GeyserSwapPlugin extends JavaPlugin {
     private int airGraceMaxMs;
     private boolean ignoreSwapBack;
     private boolean onlyStronger;
-    private int spearReachGraceMs;
 
     @Override
     public void onEnable() {
@@ -69,7 +68,6 @@ public final class GeyserSwapPlugin extends JavaPlugin {
         airGraceMaxMs = Math.max(0, Math.min(10000, getConfig().getInt("air-grace-max-ms", 3000)));
         ignoreSwapBack = getConfig().getBoolean("ignore-swap-back", true);
         onlyStronger = getConfig().getBoolean("only-stronger", true);
-        spearReachGraceMs = clampGrace(getConfig().getInt("spear-reach-grace-ms", 80));
     }
 
     private void save(String path, Object value) {
@@ -103,8 +101,6 @@ public final class GeyserSwapPlugin extends JavaPlugin {
     public int airGraceMaxMs() { return airGraceMaxMs; }
     public boolean ignoreSwapBack() { return ignoreSwapBack; }
     public boolean onlyStronger() { return onlyStronger; }
-    public int spearReachGraceMs() { return spearReachGraceMs; }
-    public void setSpearReachGraceMs(int value) { spearReachGraceMs = clampGrace(value); save("spear-reach-grace-ms", spearReachGraceMs); }
     public void setOnlyStronger(boolean value) { onlyStronger = value; save("only-stronger", value); }
 
     public void setSpearReach(boolean value) { spearReach = value; save("spear-reach", value); }
